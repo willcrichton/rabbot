@@ -1,0 +1,9 @@
+rabbot/target
+rabbot/Cargo.lock
+rabbot/src/grammar.rs
+
+rabbot-plugin/target
+rabbot-plugin/Cargo.lock
+
+rabbot-test/target
+rabbot-test/Cargo.lock

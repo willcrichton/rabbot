@@ -1,0 +1,8 @@
+[package]
+name = "rabbot-test"
+version = "0.1.0"
+authors = ["Will Crichton <wcrichto@stanford.edu>"]
+
+[dependencies]
+rabbot = { path = "../rabbot" }
+rabbot-plugin = { path = "../rabbot-plugin" }

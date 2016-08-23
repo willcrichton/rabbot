@@ -1,0 +1,51 @@
+use super::ast::*;
+use super::token::Token;
+use syntax::ast::Ident;
+use syntax::parse::token::{Token as RsToken, DelimToken};
+
+grammar;
+
+extern {
+    enum Token {
+        Ident => Token::RustToken(RsToken::Ident(<Ident>)),
+        Lbrace => Token::RustToken(RsToken::OpenDelim(DelimToken::Brace)),
+        Rbrace => Token::RustToken(RsToken::CloseDelim(DelimToken::Brace)),
+        Lparen => Token::RustToken(RsToken::OpenDelim(DelimToken::Paren)),
+        Rparen => Token::RustToken(RsToken::CloseDelim(DelimToken::Paren)),
+        Gt => Token::RustToken(RsToken::Gt),
+        Lt => Token::RustToken(RsToken::Lt),
+        Dot => Token::RustToken(RsToken::Dot),
+        Comma => Token::RustToken(RsToken::Comma),
+        Sort => Token::Sort,
+        Binding => Token::Binding,
+    }
+}
+
+pub Decls: Vec<Decl> = { Decl+ };
+
+CommaSep<T>: Vec<T> = {
+    <ts:(<T> Comma)*> <t:T> => {
+        let mut ts = ts;
+        ts.push(t);
+        ts
+    }
+};
+
+Decl: Decl = {
+    Sort <id:Ident> Lbrace <items:CommaSep<Item>> Rbrace => (id, items)
+};
+
+Item: Item = {
+    <id:Ident> <ty:(Lparen <Type> Rparen)?> => (id, ty)
+};
+
+Type: Type = {
+    <l:TyAtom> Dot <r:Type> => Type::Var(box l, box r),
+    TyAtom
+};
+
+TyAtom: Type = {
+    Binding Lt <id:Ident> Gt => Type::Bind(id),
+    Ident => Type::Ident(<>),
+    Lparen <tys:CommaSep<Type>> Rparen => Type::Prod(tys),
+};
