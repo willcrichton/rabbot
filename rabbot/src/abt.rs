@@ -9,12 +9,14 @@ pub enum Oper {
     App
 }
 
+// Oper contains a boxed T to avoid infintely-sized types.
+
 #[derive(Clone, Debug)]
 pub enum Abt<T> {
     Fv(Var),
     Bv(i32),
     Abs(String, Box<Abt<T>>),
-    Oper(T),
+    Oper(Box<T>),
 }
 
 #[derive(Clone, Debug)]
@@ -32,7 +34,7 @@ impl<T> Abt<T> {
             Abt::Fv(y) => if x == y { Abt::Bv(i) } else { Abt::Fv(y) },
             Abt::Abs(name, box t) => Abt::Abs(name, box Abt::bind(bind_oper, x, i + 1, t)),
             Abt::Bv(n) => Abt::Bv(n),
-            Abt::Oper(f) => Abt::Oper(bind_oper(x, i, f))
+            Abt::Oper(f) => Abt::Oper(box bind_oper(x, i, *f))
         }
     }
 
@@ -42,7 +44,7 @@ impl<T> Abt<T> {
             Abt::Fv(y) => Abt::Fv(y),
             Abt::Abs(name, box t) => Abt::Abs(name, box Abt::unbind(unbind_oper, x, i + 1, t)),
             Abt::Bv(n) => if i == n { Abt::Fv(x) } else { Abt::Bv(n) },
-            Abt::Oper(f) => Abt::Oper(unbind_oper(x, i, f))
+            Abt::Oper(f) => Abt::Oper(box unbind_oper(x, i, *f))
         }
     }
 
@@ -50,7 +52,7 @@ impl<T> Abt<T> {
         match t {
             View::Var(x) => Abt::Fv(x),
             View::Binding(x, t) => Abt::Abs(x.to_string(), box Abt::bind(bind_oper, x, 0, t)),
-            View::Oper(f) => Abt::Oper(f)
+            View::Oper(f) => Abt::Oper(box f)
         }
     }
 
@@ -58,7 +60,7 @@ impl<T> Abt<T> {
         match t {
             Abt::Bv(_) => panic!("Bv in out"),
             Abt::Fv(x) => View::Var(x),
-            Abt::Oper(f) => View::Oper(f),
+            Abt::Oper(f) => View::Oper(*f),
             Abt::Abs(name, box t) => {
                 let var = Var::new(name);
                 View::Binding(var.clone(), Abt::unbind(unbind_oper, var, 0, t))

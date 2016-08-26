@@ -1,5 +1,4 @@
 use syntax::parse::token::{Token as RsToken};
-use syntax::tokenstream::TokenTree;
 
 #[derive(Debug, Clone)]
 pub enum Token {

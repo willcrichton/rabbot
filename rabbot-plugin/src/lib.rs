@@ -43,7 +43,7 @@ pub fn expand_rabbot(cx: &mut ExtCtxt, sp: Span, args: &[TokenTree]) ->
     //println!("{:?}", tokens);
 
     let ast = parse(tokens).unwrap();
-    println!("{:?}", ast);
+    //println!("{:?}", ast);
 
     MacEager::items(Svec::many(codegen::gen_decls(cx, ast)))
 }

@@ -1,11 +1,7 @@
-#![feature(plugin)]
+#![feature(plugin, box_syntax)]
 #![plugin(rabbot_plugin)]
 
 extern crate rabbot;
-
-use rabbot::abt::*;
-use rabbot::var::Var;
-
 
 rabbot! {
     sort Term {
@@ -16,10 +12,8 @@ rabbot! {
     }
 }
 
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn it_works() {
-    }
+#[test]
+fn test() {
+    use term::*;
+    println!("{:?}", into(View::Z));
 }
