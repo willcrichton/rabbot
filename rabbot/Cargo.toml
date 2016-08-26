@@ -1,6 +1,11 @@
 [package]
 name = "rabbot"
 version = "0.1.0"
+description = "Abstract binding tree generator"
+repository = "https://github.com/willcrichton/rabbot"
+readme = "../README.md"
+keywords = ["abstract", "binding", "tree"]
+license = "Apache-2.0/MIT"
 authors = ["Will Crichton <wcrichto@stanford.edu>"]
 build = "build.rs"
 
