@@ -1,6 +1,11 @@
 [package]
 name = "rabbot-plugin"
 version = "0.1.0"
+description = "Compiler plugin for Rabbot"
+repository = "https://github.com/willcrichton/rabbot"
+readme = "../README.md"
+keywords = ["abstract", "binding", "tree"]
+license = "Apache-2.0/MIT"
 authors = ["Will Crichton <wcrichto@stanford.edu>"]
 
 [lib]
@@ -8,4 +13,4 @@ plugin = true
 crate-type = ["dylib"]
 
 [dependencies]
-rabbot = { path = "../rabbot" }
+rabbot = { path = "../rabbot", version = "0.1" }
