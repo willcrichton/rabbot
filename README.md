@@ -24,7 +24,7 @@ However, ABTs work differently. At its core, an ABT is a fixed tree data structu
 
 To alleviate the verbosity of using ABTs, Rabbot takes a description of an abstract binding tree and generates a more concise interface for the programmer to use. For example, one can implement lambda calculus with Peano numerals and its interpreter in a few lines:
 
-```
+```rust
 #![feature(plugin, box_syntax)]
 #![plugin(rabbot_plugin)]
 
