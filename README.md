@@ -17,7 +17,8 @@ enum Expression {
     Number(i32),
     Plus(Box<Expression>, Box<Expression>),
     ...
-}```
+}
+```
 
 However, ABTs work differently. At its core, an ABT is a fixed tree data structure that is parameterized by a set of operators, where each operator describes functionality like `Number` or `Plus`. See `rabbot/src/abt.rs` for the definition of the data type. This lets you easily re-use the ABT structure for different kinds of programs, but it requires more boilerplate and more code in practice to use.
 

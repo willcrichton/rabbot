@@ -1,6 +1,6 @@
 [package]
 name = "rabbot"
-version = "0.1.0"
+version = "0.1.1"
 description = "Abstract binding tree generator"
 repository = "https://github.com/willcrichton/rabbot"
 readme = "../README.md"
