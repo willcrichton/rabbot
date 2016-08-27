@@ -11,3 +11,13 @@ pub mod ast;
 pub mod codegen;
 pub mod abt;
 pub mod var;
+
+#[macro_export]
+macro_rules! bind {
+    ($variant:path { $args:tt } = $e:expr) => {
+        let $args = match $e {
+            $variant($args) => { $args },
+            _ => unreachable!()
+        };
+    }
+}
