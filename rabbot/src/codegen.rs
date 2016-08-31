@@ -1,15 +1,21 @@
 use syntax::ext::base::ExtCtxt;
-use syntax::ast::{Item as RsItem, Arm};
+use syntax::ast::{Item as RsItem, Arm, Ident};
 use syntax::parse;
 use syntax::ptr::P;
 use std::collections::HashSet;
 
 use super::ast::*;
 
-pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl) -> Vec<P<RsItem>> {
+pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl, sorts: &HashSet<Ident>) -> Vec<P<RsItem>> {
+    let mut uses = vec![];
+    for id in sorts.iter() {
+        if id != &sort_id {
+            let module = ident_to_lower(id);
+            uses.push(quote_item!(cx, use super::$module::$id;).unwrap())
+        }
+    }
+
     let sess = parse::ParseSess::new();
-    let mut sorts = HashSet::new();
-    sorts.insert(sort_id.clone());
 
     let ops_variant = {
         let variant_arms: Vec<String> =
@@ -51,14 +57,14 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl) -> Vec<P<RsItem>> {
     let oper_bind = {
         let arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
-                &Some(ref item) => item.to_ops_arm(cx, name, &sorts, true),
+                &Some(ref item) => item.to_ops_arm(cx, name, sorts, true),
                 &None => quote_arm!(cx, Ops::$name => { Ops::$name })
             }
         }).collect();
 
         quote_item!(
             cx,
-            fn term_oper_bind(x: Var, i: i32, term: Ops) -> Ops {
+            pub fn oper_bind(x: Var, i: i32, term: Ops) -> Ops {
                 match term {
                     $arms
                 }
@@ -68,14 +74,14 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl) -> Vec<P<RsItem>> {
     let oper_unbind = {
         let arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
-                &Some(ref item) => item.to_ops_arm(cx, name, &sorts, false),
+                &Some(ref item) => item.to_ops_arm(cx, name, sorts, false),
                 &None => quote_arm!(cx, Ops::$name => { Ops::$name })
             }
         }).collect();
 
         quote_item!(
             cx,
-            fn term_oper_unbind(x: Var, i: i32, term: Ops) -> Ops {
+            pub fn oper_unbind(x: Var, i: i32, term: Ops) -> Ops {
                 match term {
                     $arms
                 }
@@ -90,7 +96,7 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl) -> Vec<P<RsItem>> {
     let view_in = {
         let mut arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
-                &Some(ref item) => item.to_view_in_arm(cx, &sorts, name),
+                &Some(ref item) => item.to_view_in_arm(cx, sorts, name),
                 &None => quote_arm!(cx, View::$name => { AbtView::Oper(Ops::$name) })
             }
         }).collect();
@@ -109,7 +115,7 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl) -> Vec<P<RsItem>> {
     let oper_view_out = {
         let arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
-                &Some(ref item) => item.to_view_out_arm(cx, &sorts, name),
+                &Some(ref item) => item.to_view_out_arm(cx, sorts, name),
                 &None => quote_arm!(cx, Ops::$name => { View::$name })
             }
         }).collect();
@@ -126,7 +132,7 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl) -> Vec<P<RsItem>> {
     let out = quote_item!(
         cx,
         pub fn out(term: $sort_id) -> View {
-            match Abt::out(box term_oper_unbind, term) {
+            match Abt::out(box oper_unbind, term) {
                 AbtView::Var(x) => View::Var(x),
                 AbtView::Oper(t) => oper_view_out(vec![], t),
                 _ => panic!("Invalid out")
@@ -136,7 +142,7 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl) -> Vec<P<RsItem>> {
     let into = quote_item!(
         cx,
         pub fn into(v: View) -> $sort_id {
-            Abt::into(box term_oper_bind, view_in(vec![], v))
+            Abt::into(box oper_bind, view_in(vec![], v))
         }).unwrap();
 
     let subst = {
@@ -164,14 +170,14 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl) -> Vec<P<RsItem>> {
             }).unwrap()
     };
 
-    let sort_id_lower =
-        parse::token::str_to_ident(sort_id.name.as_str().to_lowercase().as_str());
+    let sort_id_lower = ident_to_lower(&sort_id);
     let module = quote_item!(
         cx,
         pub mod $sort_id_lower {
             use rabbot::abt::{Abt, View as AbtView};
             use rabbot::var::Var;
-            $ops_variant
+            $uses
+                $ops_variant
                 $main_variant
                 $alias
                 $oper_bind
@@ -187,5 +193,10 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl) -> Vec<P<RsItem>> {
 }
 
 pub fn gen_decls(cx: &mut ExtCtxt, ast: Vec<Decl>) -> Vec<P<RsItem>> {
-    ast.into_iter().flat_map(|ast| gen_decl(cx, ast)).collect()
+    let mut sorts = HashSet::new();
+    for &(ref id, _) in ast.iter() {
+        sorts.insert(id.clone());
+    }
+
+    ast.into_iter().flat_map(|ast| gen_decl(cx, ast, &sorts)).collect()
 }
