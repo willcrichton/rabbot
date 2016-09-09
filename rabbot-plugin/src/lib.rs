@@ -39,7 +39,6 @@ pub fn expand_rabbot(cx: &mut ExtCtxt, sp: Span, args: &[TokenTree]) ->
         .flat_map(tt_flatten)
         .map(Token::from_rust_token)
         .collect();
-
     //println!("{:?}", tokens);
 
     let ast = parse(tokens).unwrap();

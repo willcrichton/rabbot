@@ -42,7 +42,10 @@ pub fn ident_to_lower(id: &Ident) -> Ident {
     str_to_ident(id.name.as_str().to_lowercase().as_str())
 }
 
-pub type Decl = (Ident, Vec<Item>);
+pub enum Decl {
+    Sort(Ident, Vec<Item>),
+    Use(String),
+}
 
 pub type Item = (Ident, Option<Type>);
 
@@ -52,6 +55,7 @@ pub enum Type {
     Prod(Vec<Type>),
     Var(Box<Type>, Box<Type>),
     Bind(Ident),
+    Vec(Box<Type>),
 }
 
 impl Type {
@@ -88,6 +92,14 @@ impl Type {
                 let pats = token_separate(cx, &pats, RsToken::Comma);
                 let exprs = token_separate(cx, &exprs, RsToken::Comma);
                 (quote_pat!(cx, ($pats)), quote_expr!(cx, ($exprs)))
+            },
+            &Type::Vec(ref ty) => {
+                let (pat, expr) = ty.to_ops_arm_helper(cx, generator, sorts, bind);
+                let new_id = generator.gen();
+                (quote_pat!(cx, $new_id),
+                 quote_expr!(cx, {
+                     $new_id.into_iter().map(|$pat| { $expr }).collect()
+                 }))
             },
             &Type::Var(box ref l, box ref r) => {
                 Type::Prod(vec![l.clone(), r.clone()]).to_ops_arm_helper(cx, generator, sorts, bind)
@@ -149,6 +161,18 @@ impl Type {
                  quote_expr!(cx, {
                      let mut $new_vars = vec![];
                      (($exprs), $new_vars)
+                 }))
+            },
+            &Type::Vec(ref ty) => {
+                let (pat, expr) = ty.to_view_in_arm_helper(cx, generator, sorts);
+                let new_id = generator.gen();
+                (quote_pat!(cx, $new_id),
+                 quote_expr!(cx, {
+                     let (ts, vars): (Vec<Abt<Ops>>, Vec<Vec<Var>>) =
+                         $new_id.into_iter().map(|$pat| {
+                             $expr
+                         }).unzip();
+                     (ts, vars.into_iter().flat_map(|x| x).collect())
                  }))
             },
             &Type::Var(box ref l, box ref r) => {
@@ -227,6 +251,18 @@ impl Type {
                      (($exprs), $new_vars)
                  }))
             },
+            &Type::Vec(ref ty) => {
+                let (pat, expr) = ty.to_view_in_arm_helper(cx, generator, sorts);
+                let new_id = generator.gen();
+                (quote_pat!(cx, $new_id),
+                 quote_expr!(cx, {
+                     let (ts, vars): (Vec<Abt<Ops>>, Vec<Vec<Var>>) =
+                         $new_id.into_iter().map(|$pat| {
+                             $expr
+                         }).unzip();
+                     (ts, vars.into_iter().flat_map(|x| x).collect())
+                 }))
+            },
             &Type::Var(box ref l, box ref r) => {
                 let (lpat, lexpr) = l.to_view_out_arm_helper(cx, generator, sorts);
                 let (rpat, rexpr) = r.to_view_out_arm_helper(cx, generator, sorts);
@@ -277,6 +313,14 @@ impl Type {
                 let exprs = token_separate(cx, &exprs, RsToken::Comma);
                 (quote_pat!(cx, ($pats)), quote_expr!(cx, ($exprs)))
             },
+            &Type::Vec(ref ty) => {
+                let (pat, expr) = ty.to_subst_arm_helper(cx, generator, sorts);
+                let new_id = generator.gen();
+                (quote_pat!(cx, $new_id),
+                 quote_expr!(cx, {
+                     $new_id.into_iter().map(|$pat| $expr).collect()
+                 }))
+            },
             &Type::Var(_, box ref r) => {
                 let (rpat, rexpr) = r.to_subst_arm_helper(cx, generator, sorts);
                 (quote_pat!(cx, (l, $rpat)),
@@ -297,6 +341,7 @@ impl Type {
                     tys.iter().map(|ty| ty.to_enum_string(sort_id)).collect();
                 format!("({})", strs.join(", "))
             },
+            &Type::Vec(ref ty) => format!("Vec<{}>", ty.to_enum_string(sort_id)),
             &Type::Var(box ref l, box ref r) =>
                 Type::Prod(vec![l.clone(), r.clone()]).to_enum_string(sort_id),
             &Type::Bind(_) => "Var".to_string()
@@ -311,6 +356,7 @@ impl Type {
                     tys.iter().map(|ty| ty.to_ops_enum_string(sort_id)).collect();
                 format!("({})", strs.join(", "))
             },
+            &Type::Vec(ref ty) => format!("Vec<{}>", ty.to_enum_string(sort_id)),
             &Type::Var(box ref l, box ref r) =>
                 Type::Prod(vec![l.clone(), r.clone()]).to_ops_enum_string(sort_id),
             &Type::Bind(_) => "String".to_string()

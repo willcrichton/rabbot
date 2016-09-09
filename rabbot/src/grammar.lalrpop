@@ -16,15 +16,19 @@ extern {
         Lt => Token::RustToken(RsToken::Lt),
         Dot => Token::RustToken(RsToken::Dot),
         Comma => Token::RustToken(RsToken::Comma),
+        ModSep => Token::RustToken(RsToken::ModSep),
+        Semi => Token::RustToken(RsToken::Semi),
         Sort => Token::Sort,
         Binding => Token::Binding,
+        Use => Token::Use,
+        Vec => Token::Vec,
     }
 }
 
 pub Decls: Vec<Decl> = { Decl+ };
 
-CommaSep<T>: Vec<T> = {
-    <ts:(<T> Comma)*> <t:T> => {
+Sep<T, S>: Vec<T> = {
+    <ts:(<T> S)*> <t:T> => {
         let mut ts = ts;
         ts.push(t);
         ts
@@ -32,7 +36,12 @@ CommaSep<T>: Vec<T> = {
 };
 
 Decl: Decl = {
-    Sort <id:Ident> Lbrace <items:CommaSep<Item>> Rbrace => (id, items)
+    Sort <id:Ident> Lbrace <items:Sep<Item, Comma>> Rbrace => Decl::Sort(id, items),
+    Use <path:Sep<Ident, ModSep>> Semi =>
+        Decl::Use(path.into_iter()
+            .map(|id| id.name.as_str().to_string())
+            .collect::<Vec<String>>()
+            .join("::"))
 };
 
 Item: Item = {
@@ -46,6 +55,7 @@ Type: Type = {
 
 TyAtom: Type = {
     Binding Lt <id:Ident> Gt => Type::Bind(id),
+    Vec Lt <ty:Type> Gt => Type::Vec(box ty),
     Ident => Type::Ident(<>),
-    Lparen <tys:CommaSep<Type>> Rparen => Type::Prod(tys),
+    Lparen <tys:Sep<Type, Comma>> Rparen => Type::Prod(tys),
 };

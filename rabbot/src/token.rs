@@ -7,6 +7,8 @@ pub enum Token {
     Abt,
     Sort,
     Binding,
+    Use,
+    Vec,
 }
 
 impl Token {
@@ -20,6 +22,8 @@ impl Token {
                 "abt" => Token::Abt,
                 "sort" => Token::Sort,
                 "Binding" => Token::Binding,
+                "use" => Token::Use,
+                "Vec" => Token::Vec,
                 _ => Token::RustToken(t)
             }
         } else {

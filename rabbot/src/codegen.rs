@@ -6,7 +6,15 @@ use std::collections::HashSet;
 
 use super::ast::*;
 
-pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl, sorts: &HashSet<Ident>) -> Vec<P<RsItem>> {
+pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_uses: &Vec<String>)
+                -> Vec<P<RsItem>>
+{
+    let (sort_id, items) =
+        if let Decl::Sort(sort_id, items) = decl { (sort_id, items) }
+    else { unreachable!() };
+
+    let sess = parse::ParseSess::new();
+
     let mut uses = vec![];
     for id in sorts.iter() {
         if id != &sort_id {
@@ -15,7 +23,12 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl, sorts: &HashSet<Ident>
         }
     }
 
-    let sess = parse::ParseSess::new();
+    for path in global_uses.iter() {
+        let tt =
+            parse::parse_tts_from_source_str("".to_string(), path.clone(), vec![], &sess)
+            .unwrap();
+        uses.push(quote_item!(cx, use $tt;).unwrap());
+    }
 
     let ops_variant = {
         let variant_arms: Vec<String> =
@@ -193,10 +206,30 @@ pub fn gen_decl(cx: &mut ExtCtxt, (sort_id, items): Decl, sorts: &HashSet<Ident>
 }
 
 pub fn gen_decls(cx: &mut ExtCtxt, ast: Vec<Decl>) -> Vec<P<RsItem>> {
-    let mut sorts = HashSet::new();
-    for &(ref id, _) in ast.iter() {
-        sorts.insert(id.clone());
+    let (uses, sorts): (Vec<Decl>, Vec<Decl>) =
+        ast.into_iter().partition(|node| match node {
+            &Decl::Use(_) => true,
+            _ => false
+        });
+
+
+    let mut uses = uses.into_iter().map(|node| {
+        if let Decl::Use(path) = node {
+            path
+        } else {
+            unreachable!()
+        }
+    }).collect::<Vec<String>>();
+
+    let mut sort_ids = HashSet::new();
+    for node in sorts.iter() {
+        if let &Decl::Sort(ref id, _) = node {
+            sort_ids.insert(id.clone());
+        } else {
+            unreachable!()
+        }
     }
 
-    ast.into_iter().flat_map(|ast| gen_decl(cx, ast, &sorts)).collect()
+
+    sorts.into_iter().flat_map(|ast| gen_sort(cx, ast, &sort_ids, &uses)).collect()
 }
