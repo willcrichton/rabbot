@@ -62,7 +62,7 @@ impl<T> Abt<T> {
             Abt::Fv(x) => View::Var(x),
             Abt::Oper(f) => View::Oper(*f),
             Abt::Abs(name, box t) => {
-                let var = Var::new(name);
+                let var = Var::from_string(name);
                 View::Binding(var.clone(), Abt::unbind(unbind_oper, var, 0, t))
             }
         }

@@ -15,7 +15,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
 
     let sess = parse::ParseSess::new();
 
-    let mut uses = vec![];
+    let mut uses = vec![quote_item!(cx, use std::collections::HashSet;).unwrap()];
     for id in sorts.iter() {
         if id != &sort_id {
             let module = ident_to_lower(id);
@@ -183,6 +183,35 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             }).unwrap()
     };
 
+    let free_vars_helper = {
+        let mut arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
+            match item {
+                &Some(ref item) => item.to_free_vars_arm(cx, sorts, name),
+                &None => quote_arm!(cx, View::$name => { HashSet::new() })
+            }
+        }).collect();
+
+        arms.insert(0, quote_arm!(cx, View::Var(var) => {
+            let mut hs = HashSet::new();
+            if !bound.contains(&var) { hs.insert(var); }
+            hs
+        }));
+
+        quote_item!(
+            cx,
+            fn free_vars_helper(t: $sort_id, bound: HashSet<Var>) -> HashSet<Var> {
+                match out(t) {
+                    $arms
+                }
+            }).unwrap()
+    };
+
+    let free_vars = quote_item!(
+        cx,
+        pub fn free_vars(t: $sort_id) -> HashSet<Var> {
+            free_vars_helper(t, HashSet::new())
+        }).unwrap();
+
     let sort_id_lower = ident_to_lower(&sort_id);
     let module = quote_item!(
         cx,
@@ -200,6 +229,8 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
                 $out
                 $into
                 $subst
+                $free_vars_helper
+                $free_vars
         }).unwrap();
 
     vec![module]

@@ -1,13 +1,29 @@
-#[derive(Eq, PartialEq, Clone, Debug)]
+use std::cell::RefCell;
+
+#[derive(Eq, PartialEq, Clone, Debug, Hash)]
 pub struct Var {
     name: String
 }
 
+thread_local! {
+    static COUNT: RefCell<i32> = RefCell::new(0);
+}
+
 impl Var {
-    pub fn new(name: String) -> Var {
+    pub fn from_string(name: String) -> Var {
         Var {
             name: name
         }
+    }
+
+    pub fn new() -> Var {
+        let name =
+            COUNT.with(|c| {
+                let s = format!("t{}", *c.borrow());
+                *c.borrow_mut() += 1;
+                s
+            });
+        Var::from_string(name)
     }
 
     pub fn to_string(&self) -> String {

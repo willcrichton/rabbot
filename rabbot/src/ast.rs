@@ -277,7 +277,7 @@ impl Type {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
                  quote_expr!(cx, {
-                     let x = Var::new($new_id);
+                     let x = Var::from_string($new_id);
                      (x.clone(), vec![x])
                  }))
             }
@@ -329,6 +329,71 @@ impl Type {
             &Type::Bind(_) => {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id), quote_expr!(cx, $new_id))
+            }
+        }
+    }
+
+    pub fn to_free_vars_arm(&self, cx: &mut ExtCtxt, sorts: &HashSet<Ident>,
+                            name: &Ident)
+                            -> Arm
+    {
+        let (pat, e) = self.to_free_vars_arm_helper(cx, &mut IdGenerator::new(), sorts);
+        quote_arm!(cx, View::$name($pat) => { $e })
+    }
+
+    fn to_free_vars_arm_helper(&self,
+                               cx: &mut ExtCtxt,
+                               generator: &mut IdGenerator,
+                               sorts: &HashSet<Ident>)
+                               -> (P<Pat>, P<Expr>)
+    {
+        match self {
+            &Type::Ident(ref id) => {
+                let new_id = generator.gen();
+                (quote_pat!(cx, $new_id),
+                 if sorts.contains(id) {
+                     quote_expr!(cx, free_vars($new_id))
+                 } else {
+                     quote_expr!(cx, HashSet::new())
+                 })
+            },
+            &Type::Prod(ref tys) => {
+                let (pats, exprs): (Vec<P<Pat>>, Vec<P<Expr>>) =
+                    tys.iter().map(|ty| ty.to_free_vars_arm_helper(cx, generator, sorts)).unzip();
+                let new_vars = generator.gen();
+                let exprs: Vec<P<Expr>> = exprs.into_iter().map(|expr| {
+                    quote_expr!(cx, {
+                        $new_vars.extend(($expr).into_iter());
+                    })
+                }).collect();
+                let pats = token_separate(cx, &pats, RsToken::Comma);
+                let exprs = token_separate(cx, &exprs, RsToken::Comma);
+                (quote_pat!(cx, ($pats)),
+                 quote_expr!(cx, {
+                     let mut $new_vars = HashSet::new();
+                     ($exprs);
+                     $new_vars
+                 }))
+            },
+            &Type::Vec(ref ty) => {
+                let (pat, expr) = ty.to_free_vars_arm_helper(cx, generator,sorts);
+                let new_id = generator.gen();
+                (quote_pat!(cx, $new_id),
+                 quote_expr!(cx, {
+                     let mut hs = HashSet::new();
+                     for $pat in $new_id.into_iter() {
+                         hs.extend($expr);
+                     }
+                     hs
+                 }))
+            },
+            &Type::Var(_, box ref r) => {
+                let (rpat, rexpr) = r.to_free_vars_arm_helper(cx, generator, sorts);
+                (quote_pat!(cx, (_, $rpat)),
+                 quote_expr!(cx, $rexpr))
+            },
+            &Type::Bind(_) => {
+                (quote_pat!(cx, _), quote_expr!(cx, HashSet::new()))
             }
         }
     }
