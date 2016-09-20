@@ -15,10 +15,11 @@ extern {
         Gt => Token::RustToken(RsToken::Gt),
         Lt => Token::RustToken(RsToken::Lt),
         Dot => Token::RustToken(RsToken::Dot),
+        Colon => Token::RustToken(RsToken::Colon),
         Comma => Token::RustToken(RsToken::Comma),
         ModSep => Token::RustToken(RsToken::ModSep),
         Semi => Token::RustToken(RsToken::Semi),
-        Sort => Token::Sort,
+        Enum => Token::Enum,
         Binding => Token::Binding,
         Use => Token::Use,
         Vec => Token::Vec,
@@ -35,8 +36,17 @@ Sep<T, S>: Vec<T> = {
     }
 };
 
+MetadataItem: (Ident, Ident) = {
+    <l:Ident> Colon <r:Ident> => (l, r)
+};
+
+Metadata: Metadata = {
+    Lbrace <items:Sep<MetadataItem, Comma>> Rbrace => items
+};
+
 Decl: Decl = {
-    Sort <id:Ident> Lbrace <items:Sep<Item, Comma>> Rbrace => Decl::Sort(id, items),
+    Enum <id:Ident> <meta:Metadata?> Lbrace <items:Sep<Item, Comma>> Rbrace =>
+        Decl::Sort(id, items, match meta { Some(v) => v, None => vec![] }),
     Use <path:Sep<Ident, ModSep>> Semi =>
         Decl::Use(path.into_iter()
             .map(|id| id.name.as_str().to_string())

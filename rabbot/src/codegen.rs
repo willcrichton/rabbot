@@ -1,5 +1,6 @@
 use syntax::ext::base::ExtCtxt;
-use syntax::ast::{Item as RsItem, Arm, Ident};
+use syntax::ast::{Item as RsItem, Arm, Ident, Expr};
+use syntax::parse::token::{Token as RsToken, str_to_ident};
 use syntax::parse;
 use syntax::ptr::P;
 use std::collections::HashSet;
@@ -9,9 +10,11 @@ use super::ast::*;
 pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_uses: &Vec<String>)
                 -> Vec<P<RsItem>>
 {
-    let (sort_id, items) =
-        if let Decl::Sort(sort_id, items) = decl { (sort_id, items) }
+    let (sort_id, mut items, meta) =
+        if let Decl::Sort(sort_id, items, meta) = decl { (sort_id, items, meta) }
     else { unreachable!() };
+
+    items.insert(0, (str_to_ident("Var"), Some(Type::Ident(sort_id.clone()))));
 
     let sess = parse::ParseSess::new();
 
@@ -41,7 +44,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
                 }
             }).collect();
         let ops_variant = format!(
-            "#[derive(Debug, Clone)] pub enum Ops {{ {} }}",
+            "#[derive(Debug, Clone)] pub enum Op {{ {} }}",
             variant_arms.join("\n"));
 
         parse::parse_item_from_source_str("".to_string(), ops_variant, vec![], &sess)
@@ -58,7 +61,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
                         format!("{}({}),", name.name.as_str(), item.to_enum_string(&sort_id))
                 }
             }).collect();
-        variant_arms.insert(0, "Var(Var),".to_string());
+        variant_arms.insert(0, "Var_(Var),".to_string());
         let main_variant = format!(
             "#[derive(Debug, Clone)] pub enum View {{ {} }}",
             variant_arms.join("\n"));
@@ -67,18 +70,29 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             .unwrap().unwrap()
     };
 
+
+    let st = &mut State {
+        sess: &sess,
+        sorts: sorts.clone(),
+        meta: meta.clone(),
+    };
+
     let oper_bind = {
         let arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
-                &Some(ref item) => item.to_ops_arm(cx, name, sorts, true),
-                &None => quote_arm!(cx, Ops::$name => { Ops::$name })
+                &Some(ref item) => item.to_ops_arm(cx, name, st, true),
+                &None => {
+                    let e = quote_expr!(cx, Op::$name);
+                    let node = st.build_node(cx, e);
+                    quote_arm!(cx, Op::$name => { $node })
+                }
             }
         }).collect();
 
         quote_item!(
             cx,
-            pub fn oper_bind(x: Var, i: i32, term: Ops) -> Ops {
-                match term {
+            pub fn oper_bind(x: Var, i: i32, node: Meta<Op>) -> Meta<Op> {
+                match node.val {
                     $arms
                 }
             }).unwrap()
@@ -87,39 +101,60 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
     let oper_unbind = {
         let arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
-                &Some(ref item) => item.to_ops_arm(cx, name, sorts, false),
-                &None => quote_arm!(cx, Ops::$name => { Ops::$name })
+                &Some(ref item) => item.to_ops_arm(cx, name, st, false),
+                &None => {
+                    let e = quote_expr!(cx, Op::$name);
+                    let node = st.build_node(cx, e);
+                    quote_arm!(cx, Op::$name => { $node })
+                }
             }
         }).collect();
 
         quote_item!(
             cx,
-            pub fn oper_unbind(x: Var, i: i32, term: Ops) -> Ops {
-                match term {
+            pub fn oper_unbind(x: Var, i: i32, node: Meta<Op>) -> Meta<Op> {
+                match node.val {
                     $arms
                 }
             }).unwrap()
     };
 
+    let meta_def = {
+        let arms = meta.iter().map(|&(ref key, ref value)| {
+            format!("{}: {}", key.name.as_str(), value.name.as_str())
+        }).collect::<Vec<String>>().join(",\n");
+
+        let node = format!("#[derive(Debug, Clone)] pub struct Meta<T> {{ val: T, \n {} }}", arms);
+
+        parse::parse_item_from_source_str("".to_string(), node, vec![], &sess)
+            .unwrap().unwrap()
+    };
+
     let alias = quote_item!(
         cx,
-        pub type $sort_id = Abt<Ops>;
+        pub type $sort_id = Abt<Meta<Op>>;
         ).unwrap();
 
     let view_in = {
         let mut arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
-                &Some(ref item) => item.to_view_in_arm(cx, sorts, name),
-                &None => quote_arm!(cx, View::$name => { AbtView::Oper(Ops::$name) })
+                &Some(ref item) => item.to_view_in_arm(cx, st, name),
+                &None => {
+                    let e = quote_expr!(cx, Op::$name);
+                    let node = st.build_node(cx, e);
+                    quote_arm!(cx, View::$name => { AbtView::Oper($node) })
+                }
             }
         }).collect();
 
-        arms.insert(0, quote_arm!(cx, View::Var(x) => { AbtView::Var(x) }));
+        arms.insert(0, {
+            quote_arm!(cx, View::Var_(x) => { AbtView::Var(x) })
+        });
 
         quote_item!(
             cx,
-            fn view_in(vars: Vec<Var>, term: View) -> AbtView<Ops> {
-                match term {
+            fn view_in(vars: Vec<Var>, node: Meta<View>) -> AbtView<Meta<Op>> {
+                match node.val {
                     $arms
                 }
             }).unwrap()
@@ -128,15 +163,19 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
     let oper_view_out = {
         let arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
-                &Some(ref item) => item.to_view_out_arm(cx, sorts, name),
-                &None => quote_arm!(cx, Ops::$name => { View::$name })
+                &Some(ref item) => item.to_view_out_arm(cx, st, name),
+                &None => {
+                    let e = quote_expr!(cx, View::$name);
+                    let node = st.build_node(cx, e);
+                    quote_arm!(cx, Op::$name => { $node })
+                }
             }
         }).collect();
 
         quote_item!(
             cx,
-            fn oper_view_out(vars: Vec<Var>, term: Ops) -> View {
-                match term {
+            fn oper_view_out(vars: Vec<Var>, node: Meta<Op>) -> Meta<View> {
+                match node.val {
                     $arms
                 }
             }).unwrap()
@@ -144,9 +183,9 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
 
     let out = quote_item!(
         cx,
-        pub fn out(term: $sort_id) -> View {
+        pub fn out(term: $sort_id) -> Meta<View> {
             match Abt::out(box oper_unbind, term) {
-                AbtView::Var(x) => View::Var(x),
+                AbtView::Var(_) => unreachable!(),
                 AbtView::Oper(t) => oper_view_out(vec![], t),
                 _ => panic!("Invalid out")
             }
@@ -154,30 +193,37 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
 
     let into = quote_item!(
         cx,
-        pub fn into(v: View) -> $sort_id {
+        pub fn into(v: Meta<View>) -> $sort_id {
             Abt::into(box oper_bind, view_in(vec![], v))
         }).unwrap();
 
     let subst = {
         let mut arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
-                &Some(ref item) => item.to_subst_arm(cx, &sorts, name),
-                &None => quote_arm!(cx, View::$name => { into(View::$name) })
+                &Some(ref item) => item.to_subst_arm(cx, st, name),
+                &None => {
+                    let e = quote_expr!(cx, View::$name);
+                    let e = st.build_node(cx, e);
+                    quote_arm!(cx, View::$name => { into($e) })
+                }
             }
         }).collect();
 
-        arms.insert(0, quote_arm!(cx, View::Var(var) => {
+        let e = quote_expr!(cx, View::Var_(var));
+        let e = st.build_node(cx, e);
+        arms.insert(0, quote_arm!(cx, View::Var_(var) => {
             if var == x {
                 t
             } else {
-                into(View::Var(var))
+                into($e)
             }
         }));
 
         quote_item!(
             cx,
             pub fn subst(t: $sort_id, x: Var, term: $sort_id) -> $sort_id {
-                match out(term) {
+                let node = out(term);
+                match node.val {
                     $arms
                 }
             }).unwrap()
@@ -191,7 +237,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             }
         }).collect();
 
-        arms.insert(0, quote_arm!(cx, View::Var(var) => {
+        arms.insert(0, quote_arm!(cx, View::Var_(var) => {
             let mut hs = HashSet::new();
             if !bound.contains(&var) { hs.insert(var); }
             hs
@@ -200,7 +246,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
         quote_item!(
             cx,
             fn free_vars_helper(t: $sort_id, bound: HashSet<Var>) -> HashSet<Var> {
-                match out(t) {
+                match out(t).val {
                     $arms
                 }
             }).unwrap()
@@ -221,6 +267,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             $uses
                 $ops_variant
                 $main_variant
+                $meta_def
                 $alias
                 $oper_bind
                 $oper_unbind
@@ -243,7 +290,6 @@ pub fn gen_decls(cx: &mut ExtCtxt, ast: Vec<Decl>) -> Vec<P<RsItem>> {
             _ => false
         });
 
-
     let mut uses = uses.into_iter().map(|node| {
         if let Decl::Use(path) = node {
             path
@@ -254,7 +300,7 @@ pub fn gen_decls(cx: &mut ExtCtxt, ast: Vec<Decl>) -> Vec<P<RsItem>> {
 
     let mut sort_ids = HashSet::new();
     for node in sorts.iter() {
-        if let &Decl::Sort(ref id, _) = node {
+        if let &Decl::Sort(ref id, _, _) = node {
             sort_ids.insert(id.clone());
         } else {
             unreachable!()

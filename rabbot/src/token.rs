@@ -5,7 +5,7 @@ pub enum Token {
     RustToken(RsToken),
     Symbol,
     Abt,
-    Sort,
+    Enum,
     Binding,
     Use,
     Vec,
@@ -20,7 +20,7 @@ impl Token {
             match unsafe { s.slice_unchecked(0, s.len()) } {
                 "symbol" => Token::Symbol,
                 "abt" => Token::Abt,
-                "sort" => Token::Sort,
+                "enum" => Token::Enum,
                 "Binding" => Token::Binding,
                 "use" => Token::Use,
                 "Vec" => Token::Vec,

@@ -4,8 +4,8 @@
 #[macro_use] extern crate rabbot;
 
 rabbot! {
-    sort Term {
-        Z,
-        L(Vec<Term>)
+    enum Term {mark: i32} {
+        A,
+        B(i32)
     }
 }
