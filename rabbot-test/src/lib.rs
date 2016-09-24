@@ -4,8 +4,11 @@
 #[macro_use] extern crate rabbot;
 
 rabbot! {
+    enum Typ {
+        A
+    }
+
     enum Term {mark: i32} {
-        A,
-        B(i32)
+        B(Typ)
     }
 }

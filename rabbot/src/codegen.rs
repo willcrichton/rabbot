@@ -20,8 +20,9 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
 
     let mut uses = vec![quote_item!(cx, use std::collections::HashSet;).unwrap()];
     for id in sorts.iter() {
+        let module = ident_to_lower(id);
+        uses.push(quote_item!(cx, use super::$module;).unwrap());
         if id != &sort_id {
-            let module = ident_to_lower(id);
             uses.push(quote_item!(cx, use super::$module::$id;).unwrap())
         }
     }
@@ -75,6 +76,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
         sess: &sess,
         sorts: sorts.clone(),
         meta: meta.clone(),
+        sort_id: sort_id.clone(),
     };
 
     let oper_bind = {
@@ -121,10 +123,10 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
 
     let meta_def = {
         let arms = meta.iter().map(|&(ref key, ref value)| {
-            format!("{}: {}", key.name.as_str(), value.name.as_str())
+            format!("pub {}: {}", key.name.as_str(), value.name.as_str())
         }).collect::<Vec<String>>().join(",\n");
 
-        let node = format!("#[derive(Debug, Clone)] pub struct Meta<T> {{ val: T, \n {} }}", arms);
+        let node = format!("#[derive(Debug, Clone)] pub struct Meta<T> {{ pub val: T, \n {} }}", arms);
 
         parse::parse_item_from_source_str("".to_string(), node, vec![], &sess)
             .unwrap().unwrap()
@@ -185,7 +187,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
         cx,
         pub fn out(term: $sort_id) -> Meta<View> {
             match Abt::out(box oper_unbind, term) {
-                AbtView::Var(_) => unreachable!(),
+                AbtView::Var(_) => panic!("Out called on a Var"),
                 AbtView::Oper(t) => oper_view_out(vec![], t),
                 _ => panic!("Invalid out")
             }
@@ -237,11 +239,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             }
         }).collect();
 
-        arms.insert(0, quote_arm!(cx, View::Var_(var) => {
-            let mut hs = HashSet::new();
-            if !bound.contains(&var) { hs.insert(var); }
-            hs
-        }));
+        arms.insert(0, quote_arm!(cx, View::Var_(var) => { unreachable!() }));
 
         quote_item!(
             cx,
@@ -257,6 +255,16 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
         pub fn free_vars(t: $sort_id) -> HashSet<Var> {
             free_vars_helper(t, HashSet::new())
         }).unwrap();
+
+    let var = {
+        let e = quote_expr!(cx, View::Var_(node.val));
+        let e = st.build_node(cx, e);
+        quote_item!(
+            cx,
+            pub fn var(node: Meta<Var>) -> View {
+                View::Var(into($e))
+            })
+    };
 
     let sort_id_lower = ident_to_lower(&sort_id);
     let module = quote_item!(
@@ -278,6 +286,13 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
                 $subst
                 $free_vars_helper
                 $free_vars
+                $var
+                pub fn extract_var(t: $sort_id) -> Var {
+                    match Abt::out(box oper_unbind, t) {
+                        AbtView::Var(v) => v,
+                        _ => unreachable!()
+                    }
+                }
         }).unwrap();
 
     vec![module]
@@ -306,7 +321,6 @@ pub fn gen_decls(cx: &mut ExtCtxt, ast: Vec<Decl>) -> Vec<P<RsItem>> {
             unreachable!()
         }
     }
-
 
     sorts.into_iter().flat_map(|ast| gen_sort(cx, ast, &sort_ids, &uses)).collect()
 }

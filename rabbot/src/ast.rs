@@ -66,6 +66,7 @@ pub struct State<'a> {
     pub sess: &'a parse::ParseSess,
     pub sorts: HashSet<Ident>,
     pub meta: Metadata,
+    pub sort_id: Ident,
 }
 
 impl<'a> State<'a> {
@@ -75,7 +76,7 @@ impl<'a> State<'a> {
             format!("{}: node.{}", key, key)
         }).collect::<Vec<String>>().join(",");
         let val = pprust::expr_to_string(&val.unwrap());
-        let node = format!("Meta {{ {}, val: {} }}", exprs, val);
+        let node = format!("Meta {{ val: {}, {} }}", val, exprs);
         parse::parse_expr_from_source_str("".to_string(), node, vec![], self.sess)
             .unwrap()
     }
@@ -195,7 +196,7 @@ impl Type {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
                  quote_expr!(cx, {
-                     let (ts, vars): (Vec<Abt<Op>>, Vec<Vec<Var>>) =
+                     let (ts, vars): (Vec<Abt<Meta<Op>>>, Vec<Vec<Var>>) =
                          $new_id.into_iter().map(|$pat| {
                              $expr
                          }).unzip();
@@ -285,7 +286,7 @@ impl Type {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
                  quote_expr!(cx, {
-                     let (ts, vars): (Vec<Abt<Op>>, Vec<Vec<Var>>) =
+                     let (ts, vars): (Vec<Abt<Meta<Op>>>, Vec<Vec<Var>>) =
                          $new_id.into_iter().map(|$pat| {
                              $expr
                          }).unzip();
@@ -329,7 +330,7 @@ impl Type {
             &Type::Ident(ref id) => {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
-                 if st.sorts.contains(id) {
+                 if id == &st.sort_id {
                      quote_expr!(cx, subst(t.clone(), x.clone(), $new_id))
                  } else {
                      quote_expr!(cx, $new_id)
@@ -366,7 +367,20 @@ impl Type {
                             name: &Ident)
                             -> Arm
     {
-        let (pat, e) = self.to_free_vars_arm_helper(cx, &mut IdGenerator::new(), sorts);
+        let generator = &mut IdGenerator::new();
+        let (pat, e) = if name == &str_to_ident("Var") {
+            let var_id = generator.gen();
+            (quote_pat!(cx, $var_id),
+             quote_expr!(cx, {
+                 let var = extract_var($var_id);
+                 let mut hs = HashSet::new();
+                 hs.insert(var);
+                 hs
+             }))
+        } else {
+            self.to_free_vars_arm_helper(cx, generator, sorts)
+        };
+
         quote_arm!(cx, View::$name($pat) => { $e })
     }
 
@@ -381,7 +395,8 @@ impl Type {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
                  if sorts.contains(id) {
-                     quote_expr!(cx, free_vars($new_id))
+                     let lower = ident_to_lower(id);
+                     quote_expr!(cx, $lower::free_vars($new_id))
                  } else {
                      quote_expr!(cx, HashSet::new())
                  })
