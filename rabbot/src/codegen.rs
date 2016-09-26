@@ -1,6 +1,6 @@
 use syntax::ext::base::ExtCtxt;
-use syntax::ast::{Item as RsItem, Arm, Ident, Expr};
-use syntax::parse::token::{Token as RsToken, str_to_ident};
+use syntax::ast::{Item as RsItem, Arm, Ident};
+use syntax::parse::token::str_to_ident;
 use syntax::parse;
 use syntax::ptr::P;
 use std::collections::HashSet;
@@ -84,8 +84,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             match item {
                 &Some(ref item) => item.to_ops_arm(cx, name, st, true),
                 &None => {
-                    let e = quote_expr!(cx, Op::$name);
-                    let node = st.build_node(cx, e);
+                    let node = st.build_node(quote_expr!(cx, Op::$name));
                     quote_arm!(cx, Op::$name => { $node })
                 }
             }
@@ -105,8 +104,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             match item {
                 &Some(ref item) => item.to_ops_arm(cx, name, st, false),
                 &None => {
-                    let e = quote_expr!(cx, Op::$name);
-                    let node = st.build_node(cx, e);
+                    let node = st.build_node(quote_expr!(cx, Op::$name));
                     quote_arm!(cx, Op::$name => { $node })
                 }
             }
@@ -126,7 +124,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             format!("pub {}: {}", key.name.as_str(), value.name.as_str())
         }).collect::<Vec<String>>().join(",\n");
 
-        let node = format!("#[derive(Debug, Clone)] pub struct Meta<T> {{ pub val: T, \n {} }}", arms);
+        let node = format!("#[derive(Debug, Clone, Default)] pub struct Meta<T> {{ pub val: T, \n {} }}", arms);
 
         parse::parse_item_from_source_str("".to_string(), node, vec![], &sess)
             .unwrap().unwrap()
@@ -142,8 +140,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             match item {
                 &Some(ref item) => item.to_view_in_arm(cx, st, name),
                 &None => {
-                    let e = quote_expr!(cx, Op::$name);
-                    let node = st.build_node(cx, e);
+                    let node = st.build_node(quote_expr!(cx, Op::$name));
                     quote_arm!(cx, View::$name => { AbtView::Oper($node) })
                 }
             }
@@ -167,8 +164,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             match item {
                 &Some(ref item) => item.to_view_out_arm(cx, st, name),
                 &None => {
-                    let e = quote_expr!(cx, View::$name);
-                    let node = st.build_node(cx, e);
+                    let node = st.build_node(quote_expr!(cx, View::$name));
                     quote_arm!(cx, Op::$name => { $node })
                 }
             }
@@ -204,15 +200,13 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             match item {
                 &Some(ref item) => item.to_subst_arm(cx, st, name),
                 &None => {
-                    let e = quote_expr!(cx, View::$name);
-                    let e = st.build_node(cx, e);
+                    let e = st.build_node(quote_expr!(cx, View::$name));
                     quote_arm!(cx, View::$name => { into($e) })
                 }
             }
         }).collect();
 
-        let e = quote_expr!(cx, View::Var_(var));
-        let e = st.build_node(cx, e);
+        let e = st.build_node(quote_expr!(cx, View::Var_(var)));
         arms.insert(0, quote_arm!(cx, View::Var_(var) => {
             if var == x {
                 t
@@ -256,9 +250,32 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             free_vars_helper(t, HashSet::new())
         }).unwrap();
 
+    let oper_aequiv = {
+        let mut arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
+            match item {
+                &Some(ref item) => item.to_aequiv_arm(cx, sorts, name),
+                &None => quote_arm!(cx, (Op::$name, Op::$name) => { true })
+            }
+        }).collect();
+
+        quote_item!(
+            cx,
+            fn oper_aequiv(t1: Meta<Op>, t2: Meta<Op>) -> bool {
+                match (t1.val, t2.val) {
+                    $arms
+                    _ => false
+                }
+            })
+    };
+
+    let aequiv = quote_item!(
+        cx,
+        pub fn aequiv(t1: $sort_id, t2: $sort_id) -> bool {
+            Abt::aequiv(box oper_aequiv, t1, t2)
+        });
+
     let var = {
-        let e = quote_expr!(cx, View::Var_(node.val));
-        let e = st.build_node(cx, e);
+        let e = st.build_node(quote_expr!(cx, View::Var_(node.val)));
         quote_item!(
             cx,
             pub fn var(node: Meta<Var>) -> View {
@@ -266,9 +283,34 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             })
     };
 
+    let (default1, default2) = {
+        let mut default = None;
+        for &(ref name, ref item) in items.iter() {
+            match item {
+                &None => {
+                    default = Some(name.clone());
+                    break;
+                },
+                _ => { continue; }
+            }
+        }
+        let default = default.expect("Enum must have one arm with no fields");
+        (quote_item!(
+            cx,
+            impl Default for Op {
+                fn default() -> Op { Op::$default }
+            }),
+         quote_item!(
+             cx,
+             impl Default for View {
+                 fn default() -> View { View::$default }
+             }))
+    };
+
     let sort_id_lower = ident_to_lower(&sort_id);
     let module = quote_item!(
         cx,
+        #[allow(unused_variables, dead_code, unused_imports)]
         pub mod $sort_id_lower {
             use rabbot::abt::{Abt, View as AbtView};
             use rabbot::var::Var;
@@ -286,13 +328,20 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
                 $subst
                 $free_vars_helper
                 $free_vars
+                $oper_aequiv
+                $aequiv
                 $var
+                $default1
+                $default2
                 pub fn extract_var(t: $sort_id) -> Var {
                     match Abt::out(box oper_unbind, t) {
                         AbtView::Var(v) => v,
                         _ => unreachable!()
                     }
                 }
+            pub fn into_view(v: View) -> $sort_id {
+                into(Meta { val: v, ..Default::default() })
+            }
         }).unwrap();
 
     vec![module]
@@ -305,7 +354,7 @@ pub fn gen_decls(cx: &mut ExtCtxt, ast: Vec<Decl>) -> Vec<P<RsItem>> {
             _ => false
         });
 
-    let mut uses = uses.into_iter().map(|node| {
+    let uses = uses.into_iter().map(|node| {
         if let Decl::Use(path) = node {
             path
         } else {

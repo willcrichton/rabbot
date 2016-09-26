@@ -1,3 +1,4 @@
+use std::default::Default;
 use var::Var;
 
 #[derive(Clone, Debug)]
@@ -17,6 +18,13 @@ pub enum Abt<T> {
     Bv(i32),
     Abs(String, Box<Abt<T>>),
     Oper(Box<T>),
+}
+
+impl<T> Default for Abt<T> where T: Default {
+    fn default() -> Abt<T> {
+        let t: T = Default::default();
+        Abt::Oper(box t)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +73,16 @@ impl<T> Abt<T> {
                 let var = Var::from_string(name);
                 View::Binding(var.clone(), Abt::unbind(unbind_oper, var, 0, t))
             }
+        }
+    }
+
+    pub fn aequiv(oper_eq: Box<Fn(T, T) -> bool>, t1: Abt<T>, t2: Abt<T>) -> bool {
+        match (t1, t2) {
+            (Abt::Bv(i), Abt::Bv(j)) => i == j,
+            (Abt::Fv(x), Abt::Fv(y)) => x == y,
+            (Abt::Abs(_, box t1), Abt::Abs(_, box t2)) => Abt::aequiv(oper_eq, t1, t2),
+            (Abt::Oper(box f1), Abt::Oper(box f2)) => oper_eq(f1, f2),
+            _ => false
         }
     }
 }

@@ -1,5 +1,5 @@
 use syntax::ast::Ident;
-use syntax::ast::{Expr, Arm, Pat, Path};
+use syntax::ast::{Expr, Arm, Pat};
 use syntax::ptr::P;
 use syntax::ext::base::ExtCtxt;
 use syntax::parse::token::{str_to_ident, Token as RsToken};
@@ -70,8 +70,8 @@ pub struct State<'a> {
 }
 
 impl<'a> State<'a> {
-    pub fn build_node(&mut self, cx: &mut ExtCtxt, val: P<Expr>) -> P<Expr> {
-        let exprs = self.meta.iter().map(|&(ref key, ref value)| {
+    pub fn build_node(&mut self, val: P<Expr>) -> P<Expr> {
+        let exprs = self.meta.iter().map(|&(ref key, _)| {
             let key = key.name.as_str();
             format!("{}: node.{}", key, key)
         }).collect::<Vec<String>>().join(",");
@@ -88,8 +88,7 @@ impl Type {
                       -> Arm
     {
         let (pat, e) = self.to_ops_arm_helper(cx, &mut IdGenerator::new(), st, bind);
-        let e = quote_expr!(cx, Op::$name($e));
-        let node = st.build_node(cx, e);
+        let node = st.build_node(quote_expr!(cx, Op::$name($e)));
         quote_arm!(cx, Op::$name($pat) => { $node })
     }
 
@@ -130,7 +129,7 @@ impl Type {
             &Type::Var(box ref l, box ref r) => {
                 Type::Prod(vec![l.clone(), r.clone()]).to_ops_arm_helper(cx, generator, st, bind)
             },
-            &Type::Bind(ref id) => {
+            &Type::Bind(_) => {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id), quote_expr!(cx, $new_id))
             },
@@ -145,7 +144,7 @@ impl Type {
             let (t, _): (_, Vec<Var>) = $e;
             t
         }));
-        let node = st.build_node(cx, e);
+        let node = st.build_node(e);
         quote_arm!(cx, View::$name($pat) => { AbtView::Oper($node) })
     }
 
@@ -213,7 +212,7 @@ impl Type {
                      ((t0, t1), vars0)
                  }))
             },
-            &Type::Bind(ref id) => {
+            &Type::Bind(_) => {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
                  quote_expr!(cx, {
@@ -231,7 +230,7 @@ impl Type {
             let (t, _): (_, Vec<Var>) = $e;
             t
         }));
-        let node = st.build_node(cx, e);
+        let node = st.build_node(e);
         quote_arm!(cx, Op::$name($pat) => { $node })
     }
 
@@ -303,7 +302,7 @@ impl Type {
                      ((t0, t1), vars0)
                  }))
             },
-            &Type::Bind(ref id) => {
+            &Type::Bind(_) => {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
                  quote_expr!(cx, {
@@ -316,10 +315,21 @@ impl Type {
 
     pub fn to_subst_arm(&self, cx: &mut ExtCtxt, st: &mut State, name: &Ident) -> Arm
     {
-        let (pat, e) = self.to_subst_arm_helper(cx, &mut IdGenerator::new(), st);
-        let e = quote_expr!(cx, View::$name($e));
-        let node = st.build_node(cx, e);
-        quote_arm!(cx, View::$name($pat) => { into($node) })
+        let generator = &mut IdGenerator::new();
+        let (pat, e) = if name == &str_to_ident("Var") {
+            let var_id = generator.gen();
+            (quote_pat!(cx, $var_id),
+             quote_expr!(cx, {
+                 let var = extract_var($var_id.clone());
+                 if var == x { t }
+                 else { $var_id }
+             }))
+        } else {
+            let (pat, e) = self.to_subst_arm_helper(cx, generator, st);
+            let node = st.build_node(quote_expr!(cx, View::$name($e)));
+            (pat, quote_expr!(cx, into($node)))
+        };
+        quote_arm!(cx, View::$name($pat) => { $e })
     }
 
     fn to_subst_arm_helper(&self, cx: &mut ExtCtxt, generator: &mut IdGenerator,
@@ -420,7 +430,7 @@ impl Type {
                  }))
             },
             &Type::Vec(ref ty) => {
-                let (pat, expr) = ty.to_free_vars_arm_helper(cx, generator,sorts);
+                let (pat, expr) = ty.to_free_vars_arm_helper(cx, generator, sorts);
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
                  quote_expr!(cx, {
@@ -438,6 +448,66 @@ impl Type {
             },
             &Type::Bind(_) => {
                 (quote_pat!(cx, _), quote_expr!(cx, HashSet::new()))
+            }
+        }
+    }
+
+    pub fn to_aequiv_arm(&self, cx: &mut ExtCtxt, sorts: &HashSet<Ident>,
+                         name: &Ident)
+                         -> Arm
+    {
+        let generator = &mut IdGenerator::new();
+        let ((pat1, pat2), e) = self.to_aequiv_arm_helper(cx, generator, sorts);
+
+        quote_arm!(cx, (Op::$name($pat1), Op::$name($pat2)) => { $e })
+    }
+
+    fn to_aequiv_arm_helper(&self, cx: &mut ExtCtxt, generator: &mut IdGenerator,
+                            sorts: &HashSet<Ident>)
+                            -> ((P<Pat>, P<Pat>), P<Expr>)
+    {
+        match self {
+            &Type::Ident(ref id) => {
+                let (id1, id2) = (generator.gen(), generator.gen());
+                ((quote_pat!(cx, $id1),
+                 quote_pat!(cx, $id2)),
+                 if sorts.contains(id) {
+                     let id = ident_to_lower(id);
+                     quote_expr!(cx, $id::aequiv($id1, $id2))
+                 } else {
+                     quote_expr!(cx, $id1 == $id2)
+                 })
+            },
+            &Type::Prod(ref tys) => {
+                let (pats, exprs): (Vec<(P<Pat>, P<Pat>)>, Vec<P<Expr>>) =
+                    tys.iter().map(|ty| ty.to_aequiv_arm_helper(cx, generator, sorts)).unzip();
+                let (pats1, pats2): (Vec<P<Pat>>, Vec<P<Pat>>) = pats.into_iter().unzip();
+                let (pats1, pats2) = (
+                    token_separate(cx, &pats1, RsToken::Comma),
+                    token_separate(cx, &pats2, RsToken::Comma));
+                let exprs = token_separate(cx, &exprs, RsToken::AndAnd);
+                ((quote_pat!(cx, ($pats1)),
+                  quote_pat!(cx, ($pats2))),
+                 quote_expr!(cx, $exprs))
+            },
+            &Type::Vec(ref ty) => {
+                let ((pat1, pat2), expr) = ty.to_aequiv_arm_helper(cx, generator, sorts);
+                let (id1, id2) = (generator.gen(), generator.gen());
+                ((quote_pat!(cx, $id1), quote_pat!(cx, $id2)),
+                 quote_expr!(cx, {
+                     $id1.into_iter().zip($id2.into_iter()).map(|($pat1, $pat2)| {
+                         $expr
+                     }).all()
+                 }))
+            },
+            &Type::Var(_, box ref r) => {
+                let ((pat1, pat2), expr) = r.to_aequiv_arm_helper(cx, generator, sorts);
+                ((quote_pat!(cx, (_, $pat1)),
+                  quote_pat!(cx, (_, $pat2))),
+                 quote_expr!(cx, $expr))
+            },
+            &Type::Bind(_) => {
+                ((quote_pat!(cx, _), quote_pat!(cx, _)), quote_expr!(cx, true))
             }
         }
     }
