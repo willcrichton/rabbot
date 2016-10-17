@@ -124,7 +124,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
             format!("pub {}: {}", key.name.as_str(), value.name.as_str())
         }).collect::<Vec<String>>().join(",\n");
 
-        let node = format!("#[derive(Debug, Clone, Default)] pub struct Meta<T> {{ pub val: T, \n {} }}", arms);
+        let node = format!("#[derive(Clone, Default)] pub struct Meta<T> {{ pub val: T, \n {} }}", arms);
 
         parse::parse_item_from_source_str("".to_string(), node, vec![], &sess)
             .unwrap().unwrap()
@@ -251,7 +251,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
         }).unwrap();
 
     let oper_aequiv = {
-        let mut arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
+        let arms: Vec<Arm> = items.iter().map(|&(ref name, ref item)| {
             match item {
                 &Some(ref item) => item.to_aequiv_arm(cx, sorts, name),
                 &None => quote_arm!(cx, (Op::$name, Op::$name) => { true })
@@ -314,6 +314,7 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
         pub mod $sort_id_lower {
             use rabbot::abt::{Abt, View as AbtView};
             use rabbot::var::Var;
+            use std::fmt;
             $uses
                 $ops_variant
                 $main_variant
@@ -341,6 +342,11 @@ pub fn gen_sort(cx: &mut ExtCtxt, decl: Decl, sorts: &HashSet<Ident>, global_use
                 }
             pub fn into_view(v: View) -> $sort_id {
                 into(Meta { val: v, ..Default::default() })
+            }
+            impl<T: fmt::Debug> fmt::Debug for Meta<T> {
+                fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                    self.val.fmt(f)
+                }
             }
         }).unwrap();
 

@@ -195,7 +195,7 @@ impl Type {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
                  quote_expr!(cx, {
-                     let (ts, vars): (Vec<Abt<Meta<Op>>>, Vec<Vec<Var>>) =
+                     let (ts, vars): (_, Vec<Vec<Var>>) =
                          $new_id.into_iter().map(|$pat| {
                              $expr
                          }).unzip();
@@ -285,7 +285,7 @@ impl Type {
                 let new_id = generator.gen();
                 (quote_pat!(cx, $new_id),
                  quote_expr!(cx, {
-                     let (ts, vars): (Vec<Abt<Meta<Op>>>, Vec<Vec<Var>>) =
+                     let (ts, vars): (_, Vec<Vec<Var>>) =
                          $new_id.into_iter().map(|$pat| {
                              $expr
                          }).unzip();
@@ -303,10 +303,10 @@ impl Type {
                  }))
             },
             &Type::Bind(_) => {
-                let new_id = generator.gen();
-                (quote_pat!(cx, $new_id),
+                //let new_id = generator.gen();
+                (quote_pat!(cx, _),
                  quote_expr!(cx, {
-                     let x = Var::from_string($new_id);
+                     let x = Var::new();
                      (x.clone(), vec![x])
                  }))
             }
@@ -318,11 +318,12 @@ impl Type {
         let generator = &mut IdGenerator::new();
         let (pat, e) = if name == &str_to_ident("Var") {
             let var_id = generator.gen();
+            let node = st.build_node(quote_expr!(cx, View::$name($var_id)));
             (quote_pat!(cx, $var_id),
              quote_expr!(cx, {
                  let var = extract_var($var_id.clone());
                  if var == x { t }
-                 else { $var_id }
+                 else { into($node) }
              }))
         } else {
             let (pat, e) = self.to_subst_arm_helper(cx, generator, st);
@@ -495,9 +496,9 @@ impl Type {
                 let (id1, id2) = (generator.gen(), generator.gen());
                 ((quote_pat!(cx, $id1), quote_pat!(cx, $id2)),
                  quote_expr!(cx, {
-                     $id1.into_iter().zip($id2.into_iter()).map(|($pat1, $pat2)| {
+                     $id1.into_iter().zip($id2.into_iter()).all(|($pat1, $pat2)| {
                          $expr
-                     }).all()
+                     })
                  }))
             },
             &Type::Var(_, box ref r) => {

@@ -1,6 +1,7 @@
 use std::cell::RefCell;
+use std::fmt;
 
-#[derive(Eq, PartialEq, Clone, Debug, Hash)]
+#[derive(Eq, PartialEq, Clone, Hash)]
 pub struct Var {
     name: String
 }
@@ -28,5 +29,17 @@ impl Var {
 
     pub fn to_string(&self) -> String {
         self.name.clone()
+    }
+}
+
+impl fmt::Display for Var {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.name.fmt(f)
+    }
+}
+
+impl fmt::Debug for Var {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.name.fmt(f)
     }
 }

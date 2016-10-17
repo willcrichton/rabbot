@@ -66,11 +66,12 @@ impl<T> Abt<T> {
 
     pub fn out(unbind_oper: BindingModifier<T>, t: Abt<T>) -> View<T> {
         match t {
-            Abt::Bv(_) => panic!("Bv in out"),
+            Abt::Bv(_) => panic!("Out on Bv"),
             Abt::Fv(x) => View::Var(x),
             Abt::Oper(f) => View::Oper(*f),
-            Abt::Abs(name, box t) => {
-                let var = Var::from_string(name);
+            Abt::Abs(_, box t) => {
+                let var = Var::new();
+                //println!("out: new var {}", var);
                 View::Binding(var.clone(), Abt::unbind(unbind_oper, var, 0, t))
             }
         }
